@@ -1,0 +1,12 @@
+﻿{
+  "name": "carocha-functions",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.js",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@azure/functions": "^4.4.0",
+    "@azure/storage-blob": "^12.17.0"
+  }
+}
