@@ -17,7 +17,7 @@ function parseConnString(cs) {
 // GET /api/getUploadSas?filename=xxx.ext  -> { uploadUrl, expiresOn }
 app.http("getUploadSas", {
   methods: ["GET"],
-  authLevel: "function",
+  authLevel: "anonymous",
   handler: async (req) => {
     const filename = req.query.get("filename");
     if (!filename) return { status: 400, jsonBody: { error: "missing filename" } };
@@ -50,7 +50,7 @@ app.http("getUploadSas", {
 // GET /api/listPhotos -> { items:[{name,size,url}], expiresOn }
 app.http("listPhotos", {
   methods: ["GET"],
-  authLevel: "function",
+  authLevel: "anonymous",
   handler: async () => {
     const conn = process.env.AzureWebJobsStorage;
     const container = process.env.PHOTOS_CONTAINER || "photos";
@@ -84,3 +84,58 @@ app.http("listPhotos", {
     return { status: 200, jsonBody: { items, expiresOn } };
   }
 });
+# acrescenta deletePhoto no fim do index.js
+cat >> index.js <<'EOF'
+
+// --- deletePhoto (apagar blob) ---
+const { BlobServiceClient } = require("@azure/storage-blob");
+
+function requireEnv(name) {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing env var: ${name}`);
+  return v;
+}
+
+app.http("deletePhoto", {
+  methods: ["DELETE", "GET"],   // GET só para facilitar testes rápidos
+  authLevel: "anonymous",
+  route: "deletePhoto",
+  handler: async (req, ctx) => {
+    try {
+      const url = new URL(req.url);
+      const name = (url.searchParams.get("name") || "").trim();
+
+      if (!name) {
+        return {
+          status: 400,
+          jsonBody: { error: "Parâmetro 'name' é obrigatório" }
+        };
+      }
+
+      const conn = requireEnv("AzureWebJobsStorage");
+      const containerName = process.env.PHOTOS_CONTAINER || "photos";
+
+      const svc = BlobServiceClient.fromConnectionString(conn);
+      const container = svc.getContainerClient(containerName);
+      const blob = container.getBlockBlobClient(name);
+
+      const exists = await blob.exists();
+      if (!exists) {
+        return {
+          status: 404,
+          jsonBody: { error: "Blob não encontrado", name }
+        };
+      }
+
+      await blob.delete();
+      return { status: 200, jsonBody: { ok: true, name } };
+    } catch (err) {
+      ctx.error?.("Erro em deletePhoto:", err);
+      return {
+        status: 500,
+        jsonBody: { error: "Erro interno", detail: String(err?.message || err) }
+      };
+    }
+  }
+});
+EOF
