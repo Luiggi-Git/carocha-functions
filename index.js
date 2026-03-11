@@ -5,6 +5,7 @@ const {
   generateBlobSASQueryParameters,
   BlobSASPermissions
 } = require("@azure/storage-blob");
+const saveLegacy = require("./save");
 
 // util: extrai accountName/Key da connection string
 function parseConnString(cs) {
@@ -84,11 +85,6 @@ app.http("listPhotos", {
     return { status: 200, jsonBody: { items, expiresOn } };
   }
 });
-# acrescenta deletePhoto no fim do index.js
-cat >> index.js <<'EOF'
-
-// --- deletePhoto (apagar blob) ---
-const { BlobServiceClient } = require("@azure/storage-blob");
 
 function requireEnv(name) {
   const v = process.env[name];
@@ -138,4 +134,30 @@ app.http("deletePhoto", {
     }
   }
 });
-EOF
+
+// Bridge para manter /api/save (legacy function.json) no modelo novo
+app.http("save", {
+  methods: ["GET", "POST", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "save",
+  handler: async (req, ctx) => {
+    // Converte HttpRequest v4 -> shape antigo { method, body }
+    const rawBody = await req.text();
+    let parsed;
+    try { parsed = rawBody ? JSON.parse(rawBody) : undefined; } catch { parsed = undefined; }
+    const legacyReq = { method: req.method, body: parsed ?? rawBody };
+    const legacyCtx = {
+      log: ctx.log,
+      res: undefined,
+    };
+
+    await saveLegacy(legacyCtx, legacyReq);
+
+    const res = legacyCtx.res || { status: 500, body: { error: "Sem resposta do handler save" } };
+    return {
+      status: res.status || 200,
+      headers: res.headers,
+      body: res.body,
+    };
+  }
+});

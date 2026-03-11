@@ -38,12 +38,20 @@ module.exports = async function (context, req) {
 
     if (method === "POST") {
       await containerClient.createIfNotExists();
-      let jsonText;
-      if (typeof req.body === "string") {
-        jsonText = req.body;
-      } else {
-        jsonText = JSON.stringify(req.body ?? {});
+
+      // Corpo pode vir como string (fallback) ou objeto já parseado
+      const incoming = typeof req.body === "string" ? safeJsonParse(req.body) : (req.body ?? {});
+
+      // Carrega snapshot atual para merge (para evitar reenviar dataUrl de fotos já guardadas)
+      let merged = incoming;
+      try {
+        const prev = await loadCurrentSnapshot(blobClient);
+        merged = mergeSnapshots(prev, incoming);
+      } catch (err) {
+        context.log.warn("merge skipped, unable to load existing snapshot:", err?.message || err);
       }
+
+      const jsonText = JSON.stringify(merged ?? {});
       await blobClient.upload(jsonText, Buffer.byteLength(jsonText), {
         blobHTTPHeaders: { blobContentType: "application/json; charset=utf-8" }
       });
@@ -65,5 +73,63 @@ async function streamToString(readable) {
     readable.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     readable.on("error", reject);
   });
+}
+
+function safeJsonParse(text, fallback = {}) {
+  try { return JSON.parse(text); }
+  catch { return fallback; }
+}
+
+async function loadCurrentSnapshot(blobClient) {
+  if (!(await blobClient.exists())) return null;
+  const dl = await blobClient.download();
+  const text = await streamToString(dl.readableStreamBody);
+  return safeJsonParse(text, null);
+}
+
+function mergeSnapshots(prev, incoming) {
+  if (!incoming || typeof incoming !== "object") return incoming;
+  if (!prev || typeof prev !== "object") return incoming;
+
+  const prevIndex = buildPhotoIndex(prev);
+  const payload = incoming.payload ?? incoming; // suporta ambos formatos {kind, payload} ou snapshot cru
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.projetos)) return incoming;
+
+  const mergedProjetos = payload.projetos.map((proj) => {
+    if (!proj || typeof proj !== "object") return proj;
+    const key = proj.projeto || proj.nome || "";
+    const prevFotos = prevIndex.get(key);
+    if (!prevFotos || !Array.isArray(proj.fotos)) return proj;
+
+    const fotos = proj.fotos.map((foto) => {
+      if (!foto || typeof foto !== "object" || !foto.id) return foto;
+      if (foto.dataUrl) return foto; // nova ou alterada
+      const prevFoto = prevFotos.get(foto.id);
+      if (prevFoto?.dataUrl) return { ...foto, dataUrl: prevFoto.dataUrl };
+      return foto;
+    });
+    return { ...proj, fotos };
+  });
+
+  const mergedPayload = { ...payload, projetos: mergedProjetos };
+  return "kind" in incoming ? { ...incoming, payload: mergedPayload } : mergedPayload;
+}
+
+function buildPhotoIndex(snapshot) {
+  const map = new Map();
+  const payload = snapshot.payload ?? snapshot;
+  for (const proj of payload?.projetos || []) {
+    if (!proj || typeof proj !== "object") continue;
+    const key = proj.projeto || proj.nome || "";
+    if (!key) continue;
+    const fotosMap = new Map();
+    for (const foto of proj.fotos || []) {
+      if (foto && typeof foto === "object" && foto.id) {
+        fotosMap.set(foto.id, foto);
+      }
+    }
+    map.set(key, fotosMap);
+  }
+  return map;
 }
 
