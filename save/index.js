@@ -12,14 +12,16 @@ module.exports = async function (context, req) {
     const method = (req.method || "GET").toUpperCase();
 
     if (method === "OPTIONS") {
-      return { status: 204, headers: CORS };
+      context.res = { status: 204, headers: CORS };
+      return;
     }
 
     const connStr = process.env.AzureWebJobsStorage;
     if (!connStr) {
       const msg = "AzureWebJobsStorage nao configurado";
       context.log.error("[save]", msg);
-      return { status: 500, headers: CORS, jsonBody: { error: msg } };
+      context.res = jsonResponse(500, { error: msg });
+      return;
     }
 
     const snapshotContainer = process.env.SNAPSHOT_CONTAINER || "data";
@@ -31,25 +33,16 @@ module.exports = async function (context, req) {
     if (method === "GET") {
       const snapshot = await readSnapshot(blobClient);
       if (!snapshot) {
-        return {
-          status: 404,
-          headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" },
-          body: JSON.stringify({ error: `Blob ${snapshotContainer}/${snapshotBlob} not found` })
-        };
+        context.res = jsonResponse(404, { error: `Blob ${snapshotContainer}/${snapshotBlob} not found` });
+        return;
       }
-      return {
-        status: 200,
-        headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" },
-        body: JSON.stringify(snapshot)
-      };
+      context.res = jsonResponse(200, snapshot);
+      return;
     }
 
     if (method !== "POST") {
-      return {
-        status: 405,
-        headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" },
-        body: JSON.stringify({ error: "Method Not Allowed" })
-      };
+      context.res = jsonResponse(405, { error: "Method Not Allowed" });
+      return;
     }
 
     await containerClient.createIfNotExists();
@@ -64,23 +57,23 @@ module.exports = async function (context, req) {
       blobHTTPHeaders: { blobContentType: "application/json; charset=utf-8" }
     });
 
-    return {
-      status: 200,
-      headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ ok: true })
-    };
+    context.res = jsonResponse(200, { ok: true });
   } catch (err) {
     context.log.error("save error:", err);
-    return {
-      status: 500,
-      headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({
-        error: String(err && err.message ? err.message : err),
-        stack: err && err.stack ? String(err.stack) : undefined
-      })
-    };
+    context.res = jsonResponse(500, {
+      error: String(err && err.message ? err.message : err),
+      stack: err && err.stack ? String(err.stack) : undefined
+    });
   }
 };
+
+function jsonResponse(status, payload) {
+  return {
+    status,
+    headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify(payload)
+  };
+}
 
 function parseBody(body) {
   if (typeof body === "string") {
