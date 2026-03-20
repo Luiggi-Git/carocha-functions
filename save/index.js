@@ -31,17 +31,25 @@ module.exports = async function (context, req) {
     if (method === "GET") {
       const snapshot = await readSnapshot(blobClient);
       if (!snapshot) {
-        return { status: 404, headers: CORS, jsonBody: { error: `Blob ${snapshotContainer}/${snapshotBlob} not found` } };
+        return {
+          status: 404,
+          headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify({ error: `Blob ${snapshotContainer}/${snapshotBlob} not found` })
+        };
       }
       return {
         status: 200,
         headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" },
-        jsonBody: snapshot
+        body: JSON.stringify(snapshot)
       };
     }
 
     if (method !== "POST") {
-      return { status: 405, headers: CORS, jsonBody: { error: "Method Not Allowed" } };
+      return {
+        status: 405,
+        headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ error: "Method Not Allowed" })
+      };
     }
 
     await containerClient.createIfNotExists();
@@ -59,17 +67,17 @@ module.exports = async function (context, req) {
     return {
       status: 200,
       headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" },
-      jsonBody: { ok: true }
+      body: JSON.stringify({ ok: true })
     };
   } catch (err) {
     context.log.error("save error:", err);
     return {
       status: 500,
       headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" },
-      jsonBody: {
+      body: JSON.stringify({
         error: String(err && err.message ? err.message : err),
         stack: err && err.stack ? String(err.stack) : undefined
-      }
+      })
     };
   }
 };
