@@ -102,6 +102,12 @@ async function readSnapshot(blobClient) {
   const dl = await blobClient.download();
   const text = await streamToString(dl.readableStreamBody);
   const parsed = parseBody(text);
+  if (parsed && typeof parsed === "object" && parsed.kind === "batch") {
+    return recomputeStats(applyChange(emptySnapshot(), parsed));
+  }
+  if (parsed && typeof parsed === "object" && parsed.kind === "snapshot" && parsed.payload && typeof parsed.payload === "object") {
+    return recomputeStats(parsed.payload);
+  }
   const raw = parsed && parsed.payload && Array.isArray(parsed.payload.projetos) ? parsed.payload : parsed;
   if (!raw || typeof raw !== "object") return emptySnapshot();
   if (!Array.isArray(raw.projetos) || !Array.isArray(raw.manutencoes)) return emptySnapshot();
