@@ -169,6 +169,10 @@ function applyProjectUpsert(snapshot, op) {
   const index = fallbackIndex;
   const existing = index >= 0 ? projetos[index] : {};
   const merged = { ...existing, ...payload };
+  merged.fotos = mergeRecordsById(existing.fotos, payload.fotos, payload.removedFotoIds);
+  merged.documentos = mergeRecordsById(existing.documentos, payload.documentos, payload.removedDocumentoIds);
+  delete merged.removedFotoIds;
+  delete merged.removedDocumentoIds;
   if (!merged.projeto) merged.projeto = nextSlug || originalSlug;
   if (index >= 0) projetos[index] = merged;
   else projetos.push(merged);
@@ -197,6 +201,30 @@ function applyMaintenanceDelete(snapshot, index) {
   const manutencoes = [...(snapshot.manutencoes || [])];
   if (index < manutencoes.length) manutencoes.splice(index, 1);
   return { ...snapshot, manutencoes };
+}
+
+function mergeRecordsById(existingRecords, incomingRecords, removedIds) {
+  const existing = Array.isArray(existingRecords) ? existingRecords : [];
+  const incoming = Array.isArray(incomingRecords) ? incomingRecords : [];
+  const removed = new Set(Array.isArray(removedIds) ? removedIds.map((id) => String(id || "")) : []);
+
+  const map = new Map();
+  for (const item of existing) {
+    if (!item || typeof item !== "object") continue;
+    const id = String(item.id || "");
+    if (!id || removed.has(id)) continue;
+    map.set(id, { ...item });
+  }
+
+  for (const item of incoming) {
+    if (!item || typeof item !== "object") continue;
+    const id = String(item.id || "");
+    if (!id) continue;
+    const current = map.get(id) || {};
+    map.set(id, { ...current, ...item });
+  }
+
+  return Array.from(map.values());
 }
 
 function recomputeStats(payload) {
